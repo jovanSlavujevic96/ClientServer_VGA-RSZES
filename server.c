@@ -21,6 +21,8 @@
 #define RED 0xf800
 #define GREEN 0x07e0
 
+#define max_clients 4
+
 unsigned int vectorColor[480][640] = {{0}};
 
 void updateScreen(void)
@@ -102,43 +104,55 @@ void doprocessing (int sock)
 int main( int argc, char **argv )
 {
 
-	 fillRectangle(RED, 10,50,10,50);
+	 //fillRectangle(RED, 10,50,10,50);
 	 fillHorizLine(BLUE, 0, 640, 240);
 	 fillVertLine(BLUE, 320,0,480);
 
-    int sockfd, newsockfd, portno, clilen;
+	 int opt = true;
+	 int master_socket, new_socket, clilen;
     char buffer[256];
     struct sockaddr_in serv_addr, cli_addr;
     int n;
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	 if (sockfd < 0)
+    master_socket = socket(AF_INET, SOCK_STREAM, 0);
+	 if (master_socket < 0)
     {
-        perror("ERROR opening socket");
-        return 1;
+        	perror("ERROR opening socket\n");
+        	return 1;
     }
-    bzero((char *) &serv_addr, sizeof(serv_addr));
-    portno = 5001;
-    serv_addr.sin_family = AF_INET; //mora biti AF_INET
+	 if( setsockopt(master_socket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt) )  < 0 )
+	 {
+			perror("ERROR setsockopt\n");	  
+	 		return 1;
+	 }
+  
+	 bzero((char *) &serv_addr, sizeof(serv_addr)); //
+    
+	 serv_addr.sin_family = AF_INET; //mora biti AF_INET
     serv_addr.sin_addr.s_addr = INADDR_ANY;
-    serv_addr.sin_port = htons(portno); 
-    if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr) ) < 0)
+    serv_addr.sin_port = htons(5001); 
+
+    if (bind(master_socket, (struct sockaddr *) &serv_addr, sizeof(serv_addr) ) < 0)
     {
-        perror("ERROR on binding");
+        perror("ERROR on binding\n");
         exit(1);
     }
-    printf("FTP server started.. waiting for clients ...\n");
-    listen(sockfd,4); //maksimalno 5 klijenata moze da koristi moje usluge
-    clilen = sizeof(cli_addr);
-	 int incr = 0; 
-	 while (1)
+
+	 if( listen(master_socket,4) < 0)
+	 {
+			perror("ERROR on listen\n");
+			exit(1);	 
+	 }
+    
+	 clilen = sizeof(cli_addr);
+	 
+	 puts("Waiting for connections..\n");
+
+	 while (true)
     {
-        	if( incr < 4 && (newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen) )) 
-			{
-				printf("FTP client connected...\n");
-				++incr;
-			}
-			   
-        	if (newsockfd < 0)
+        	new_socket = accept(master_socket, (struct sockaddr *) &cli_addr, &clilen);  
+			printf("FTP client connected...\n");
+			
+        	if (new_socket < 0)
         	{
          	perror("ERROR on accept");
             exit(1);
@@ -151,10 +165,10 @@ int main( int argc, char **argv )
        	}
         	else if (pid == 0)
         	{
-            close(sockfd);
-            doprocessing(newsockfd);
+            close(master_socket);
+            doprocessing(new_socket);
         	}
         	else
-            close(newsockfd);
+            close(new_socket);
     } 
 }
