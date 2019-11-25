@@ -25,22 +25,26 @@
 #define max_clients 4
 
 unsigned int vectorColor[480][640] = {{0}};
+unsigned int vectorsColor[4][239][319] = {{{0}}};
 
-void doprocessing (int socket);
 void fillHorizLine(const int color, const int Xmin, const int Xmax, const int Y);
 void fillVertLine(const int color, const int X, const int Ymin, const int Ymax);
 void fillRectangle(const int color, const int X0, const int X1, const int Y0, const int Y1);
+void createCube(const int id);
+void refreshCubes(void);
+void updateScreen(void);
+void eraseCube(const int id);
 
 int main( int argc, char **argv )
 {
-	//fillRectangle(RED, 10,50,10,50);
 	fillHorizLine(BLUE, 0, 640, 240);
 	fillVertLine(BLUE, 320,0,480);
 
+	pid_t childpid;
 	int opt = true;
 	int master_socket, new_socket, client_socket[max_clients] = {0}, addrlen, valread, activity;
 	int sd, max_sd;
-	char buffer[1025], *message = "ECHO Daemon v1.0 \r\n";
+	char buffer; 
 
 	struct sockaddr_in address;	
 	fd_set readfds;
@@ -78,6 +82,7 @@ int main( int argc, char **argv )
 	addrlen = sizeof(address);
 	puts("Waiting for connections..\n");
 
+	int incrementer = 0;
 	while (true)
     {
 		FD_ZERO(&readfds);
@@ -99,31 +104,53 @@ int main( int argc, char **argv )
 			
 		if(FD_ISSET(master_socket, &readfds) )
 		{
+
 			if((new_socket = accept(master_socket, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0)
 			{
-				perror("accept\n");
+				perror("accept error\n");
 				exit(1);		
 			}
-			printf("New connection. Socket fd is %d, ip is: %s, port: %d\n", new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port) );
-
-			if( send(new_socket, message, strlen(message), 0) != strlen(message) )
-				perror("send\n");
-			
-			int incrementer=0;	
+			else
+			{
+				if(incrementer < max_clients)
+					printf("New connection. Socket fd is %d, ip is: %s, port: %d\n", new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port) );	
+				else
+					printf("cannot connect new client the stack is full\n\n");
+			}
 			for(i = 0; i< max_clients; ++i)
 			{
 				if(!client_socket[i])
 				{
+					++incrementer;
 					client_socket[i] = new_socket;
-					printf("Adding to list of sockets as %d\n\n", i+1);
+					printf("Adding to list of sockets as %d\n\n", incrementer);
+					createCube(i);
+					refreshCubes();
+					updateScreen();
 					break;
 				}
-				incrementer++;
 			}
-			if(incrementer == max_clients)
-				puts("cannot connect new client, the stack is full\n\n");
-			else
-				doprocessing(new_socket);			
+			//createCube(incrementer); 
+			//refreshCubes(); 
+			//updateScreen();
+
+			if(incrementer < max_clients && (childpid = fork() ) == 0)
+			{
+				close(master_socket);
+				while(true)
+				{
+					recv(new_socket, &buffer, 1, 0);
+					if(!buffer)
+						break;
+					else if(buffer == 'w' || buffer == 'W') printf("forward\n");
+					else if(buffer == 's' || buffer == 'S') printf("back\n");
+					else if(buffer == 'd' || buffer == 'D') printf("right\n");
+					else if(buffer == 'a' || buffer == 'A') printf("left\n");
+					buffer = 0;
+					
+				}
+			}
+							
 		}
 		   
 		for(i=0; i<max_clients; ++i)
@@ -132,19 +159,67 @@ int main( int argc, char **argv )
 			
 			if(FD_ISSET( sd, &readfds))
 			{
-				if(! (valread = read(sd, buffer, 1024)) )
+				if(! (valread = read(sd, &buffer, 0)) )
 				{
 					getpeername(sd, (struct sockaddr*)&address, (socklen_t*)&addrlen);
 					printf("Host disconnected, ip %s, port %d \n\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 					close(sd);
+					incrementer--;
 					client_socket[i] = 0;
+				
+					eraseCube(i);
+					printf("%d\n",i);
+					refreshCubes();
+					updateScreen();
 				}
 				else
-					buffer[valread] = '\0';
+					buffer = '\0';
 			}
 		}
     }
 	return 0; 
+}
+
+void refreshCubes(void)
+{
+
+	int x,y;	
+	for(x = 0; x < 319; ++x)
+	{
+		for(y = 0; y < 239; ++y)
+			vectorColor[y][x] = vectorsColor[0][y][x];
+		for(y = 241; y < 480; ++y)
+			vectorColor[y][x] = vectorsColor[3][y-241][x];
+	}
+	
+	for(x = 321; x < 640; ++x)
+	{
+		for(y = 0; y < 239; ++y)
+			vectorColor[y][x] = vectorsColor[1][y][x-321];
+		for(y = 241; y < 480; ++y)
+			vectorColor[y][x] = vectorsColor[2][y-241][x-321];
+	}
+	
+}
+
+void createCube(const int id)
+{
+	if(id > 3)
+		return;
+	int x,y;
+	for(x = 140; x < 180; x++)
+		for(y = 100; y < 140; y++)
+			vectorsColor[id][y][x] = RED;
+}
+
+void eraseCube(const int id)
+{
+	if(id > 3)
+		return;
+	int x,y;
+	for(x = 0; x < 319; x++)
+		for(y = 0; y < 239; ++y)
+			vectorsColor[id][y][x] = BLACK;
 }
 
 void updateScreen(void)
@@ -190,27 +265,4 @@ void fillRectangle(const int color, const int X0, const int X1, const int Y0, co
 	int i;
 	for(i=Y0; i < Y1 ; ++i)
 		fillHorizLine(color, X0, X1, i);
-}
-
-void doprocessing(int socket)
-{
-    int n;
-	char buffer;
-    while (true)
-    {
-		printf("[IDLE] Waiting for command..\n");
-		read(socket, &buffer, 255);
-		printf("Received command: %c : %d\n",buffer, buffer);
-		if(buffer == 'W' || buffer == 'w')
-			printf("move forward\n");
-		else if(buffer == 'A' || buffer == 'a')
-			printf("move left\n");
-		else if(buffer == 'S' || buffer == 's')
-			printf("move back\n");
-		else if(buffer == 'D' || buffer == 'd')
-			printf("move right\n");
-		else if(buffer == 'Q' || buffer == 'q' || !buffer)
-			break;
-		buffer = 0;	
-    }
 }
