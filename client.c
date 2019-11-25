@@ -9,28 +9,13 @@
 #include <errno.h>
 #include <arpa/inet.h>
 #include <termios.h>
-#include <stdbool.h>
-
-char delimiter [2] = "\n";
-
-int selected = 0;
-FILE * file;
-int filesize = 0;
 
 int main(int argc, char **argv)
 {
-    int sockfd = 0, n = 0;
+    int sockfd = 0, n = 0, c;
     char recvBuff[1024];
     struct sockaddr_in serv_addr;
-    char message [100];
-    int done;
-    int number;
-    char tmpstr [30];
-    int received;
-    char * token;
-    char ans;
     
-    int c;   
     static struct termios oldt, newt;
     tcgetattr( STDIN_FILENO, &oldt);
     newt = oldt;
@@ -40,41 +25,41 @@ int main(int argc, char **argv)
     if(argc != 2)
     {
         printf("\n Usage: %s <ip of server> \n",argv[0]);
-        return 1;
+        return -1;
     }
  
     memset(recvBuff, 0,sizeof(recvBuff));
     if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         printf("\n Error : Could not create socket \n");
-        return 1;
+        return -1;
     }
     memset(&serv_addr, 0, sizeof(serv_addr));
-
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(5001);
+    
     if(inet_pton(AF_INET, argv[1], &serv_addr.sin_addr)<=0)
     {
         printf("\n inet_pton error occured\n");
-        return 1;
+        return -1;
     }
 
-    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    if(connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     {
         printf("\n Error : Connect Failed \n");
-        return 1;
+        return -1;
     }
 
-    while (true)
+    while(1)
     {
-	c = getchar();
+	    int c = getchar();
        	if(c)
-	{
-	    write (sockfd, &c, 1);
-	    printf("\nsent\n");
+	    {
+	        write (sockfd, &c, 1);
+	        printf("\t sent\n\n");
     	    if(c == 'q' || c == 'Q')
-		    break;
-	}
+		        break;
+	    }
     }
     tcsetattr( STDIN_FILENO, TCSANOW, &oldt);
     return 0;
