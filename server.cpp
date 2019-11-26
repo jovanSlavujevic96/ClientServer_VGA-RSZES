@@ -14,6 +14,9 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 
+#include <map>
+#include <iostream>
+
 #define MAX_PKT_SIZE (640*480*4)
 
 #define BLUE 0x001f
@@ -27,6 +30,11 @@
 unsigned int vectorColor[480][640] = {{0}};
 unsigned int vectorsColor[4][239][319] = {{{0}}};
 
+unsigned int xyPosition_Flag[4][2];
+
+const char letter[8] = {'a','A','w','W','s','S','d','D'};
+const char* commands[4] = {"left","forward","back","rigth"};
+
 void fillHorizLine(const int color, const int Xmin, const int Xmax, const int Y);
 void fillVertLine(const int color, const int X, const int Ymin, const int Ymax);
 void fillRectangle(const int color, const int X0, const int X1, const int Y0, const int Y1);
@@ -34,9 +42,13 @@ void createCube(const int id);
 void refreshCubes(void);
 void updateScreen(void);
 void eraseCube(const int id);
+void moveCube(const int id, const char command);
+int getId(int *socket, int id);
 
 int main( int argc, char **argv )
 {
+	
+	updateScreen();
 	fillHorizLine(BLUE, 0, 640, 240);
 	fillVertLine(BLUE, 320,0,480);
 
@@ -46,6 +58,8 @@ int main( int argc, char **argv )
 	int sd, max_sd;
 	char buffer; 
 
+	std::map<int *, int> id_map;
+	
 	struct sockaddr_in address;	
 	fd_set readfds;
 
@@ -89,8 +103,8 @@ int main( int argc, char **argv )
 		FD_SET(master_socket, &readfds);
 		max_sd = master_socket;
 		
-		int i;
-		for(i = 0; i<max_clients; ++i)
+		
+		for(int i = 0; i<max_clients; ++i)
 		{
 			sd = client_socket[i];
 			if(sd>0)
@@ -117,43 +131,47 @@ int main( int argc, char **argv )
 				else
 					printf("cannot connect new client the stack is full\n\n");
 			}
-			for(i = 0; i< max_clients; ++i)
+			for(int i = 0; i< max_clients; ++i)
 			{
 				if(!client_socket[i])
 				{
 					++incrementer;
 					client_socket[i] = new_socket;
-					printf("Adding to list of sockets as %d\n\n", incrementer);
+					printf("Adding to list of sockets as %d\n\n", i);
+					write(new_socket, &i, sizeof(i));
 					createCube(i);
 					refreshCubes();
 					updateScreen();
 					break;
 				}
 			}
-			//createCube(incrementer); 
-			//refreshCubes(); 
-			//updateScreen();
-
-			if(incrementer < max_clients && (childpid = fork() ) == 0)
+		
+			//if( (childpid = fork() ) == 0)
 			{
+				int flag;
+				for(int a=0;a<max_clients;++a)
+					if(client_socket[a] == new_socket)
+					{
+						flag = a;
+						break;	
+					}
 				close(master_socket);
 				while(true)
 				{
-					recv(new_socket, &buffer, 1, 0);
+					recv(client_socket[flag], &buffer, 1, 0);
 					if(!buffer)
 						break;
-					else if(buffer == 'w' || buffer == 'W') printf("forward\n");
-					else if(buffer == 's' || buffer == 'S') printf("back\n");
-					else if(buffer == 'd' || buffer == 'D') printf("right\n");
-					else if(buffer == 'a' || buffer == 'A') printf("left\n");
+					printf("%d\n", flag);
+					moveCube(flag,buffer);
+					refreshCubes();
+					updateScreen();
 					buffer = 0;
-					
 				}
 			}
 							
 		}
-		   
-		for(i=0; i<max_clients; ++i)
+		 
+		for(int i=0; i<max_clients; ++i)
 		{
 			sd = client_socket[i];
 			
@@ -182,14 +200,13 @@ int main( int argc, char **argv )
 
 void refreshCubes(void)
 {
-
 	int x,y;	
 	for(x = 0; x < 319; ++x)
 	{
 		for(y = 0; y < 239; ++y)
 			vectorColor[y][x] = vectorsColor[0][y][x];
 		for(y = 241; y < 480; ++y)
-			vectorColor[y][x] = vectorsColor[3][y-241][x];
+			vectorColor[y][x] = vectorsColor[2][y-241][x];
 	}
 	
 	for(x = 321; x < 640; ++x)
@@ -197,7 +214,7 @@ void refreshCubes(void)
 		for(y = 0; y < 239; ++y)
 			vectorColor[y][x] = vectorsColor[1][y][x-321];
 		for(y = 241; y < 480; ++y)
-			vectorColor[y][x] = vectorsColor[2][y-241][x-321];
+			vectorColor[y][x] = vectorsColor[3][y-241][x-321];
 	}
 	
 }
@@ -207,9 +224,18 @@ void createCube(const int id)
 	if(id > 3)
 		return;
 	int x,y;
+	bool key;
 	for(x = 140; x < 180; x++)
 		for(y = 100; y < 140; y++)
+		{	
+			if(!key)
+			{
+				xyPosition_Flag[id][0] = x;
+				xyPosition_Flag[id][1] = y;
+				key = true;
+			}
 			vectorsColor[id][y][x] = RED;
+		}
 }
 
 void eraseCube(const int id)
@@ -220,6 +246,64 @@ void eraseCube(const int id)
 	for(x = 0; x < 319; x++)
 		for(y = 0; y < 239; ++y)
 			vectorsColor[id][y][x] = BLACK;
+}
+
+void moveCube(const int id, const char command)
+{
+	if(id > 3)
+		return;
+	int i,incr=0;
+	for(i=0;i<8;++i)
+	{
+		if(command == letter[i])
+			break;
+		++incr;	
+	}
+	if(incr == 8)
+		return;
+
+
+	std::cout << "x: " << xyPosition_Flag[id][0] << " | y: " << xyPosition_Flag[id][1] << std::endl;
+
+	bool run=false;
+	if( (command == 'd' || command == 'D') && (xyPosition_Flag[id][0]+40) < 318)
+	{
+		run = true;
+		xyPosition_Flag[id][0] += 1;
+	}
+	else if( (command == 'w' || command == 'W') && (xyPosition_Flag[id][1] > 0) )
+	{
+		run = true;
+		xyPosition_Flag[id][1] -= 1;
+	}
+	else if( (command == 'a' || command == 'A') && (xyPosition_Flag[id][0] > 0) )
+	{
+		run = true;
+		xyPosition_Flag[id][0] -= 1;
+	}
+	else if( (command == 's' || command == 'S') && (xyPosition_Flag[id][1]+40) < 238)
+	{
+		run = true;
+		xyPosition_Flag[id][1] += 1;
+	}
+	else
+		run = false;
+
+	std::cout << "x: " << xyPosition_Flag[id][0] << " | y: " << xyPosition_Flag[id][1] << std::endl;
+	
+	if(!run)
+		return;
+	else
+	{	
+		int X = xyPosition_Flag[id][0], Y = xyPosition_Flag[id][1];
+		eraseCube(id);
+		printf("you pressed the %c : which is %s\n",command, commands[(int)incr/2]);
+		for(int x=X; x<X+40; x++)
+			for(int y=Y; y<Y+40; y++)
+				vectorsColor[id][y][x] = RED;							
+	}
+
+	std::cout << "run is: "  << std::boolalpha << run << std::endl;	
 }
 
 void updateScreen(void)

@@ -54,19 +54,12 @@ int main(int argc, char **argv)
     {
 	    int c = getchar();
        	if(c)
-	    {
-	        write (sockfd, &c, 1);
-	        printf("\t sent\n\n");
-    	    if(c == 'q' || c == 'Q')
+	    	{
+	      	write (sockfd, &c, 1);
+				printf("\t sent\n\n");
+    	    	if(c == 'q' || c == 'Q')
 		        break;
-	    }
-		 char msg[13] = {0};
-		 recv(sockfd, msg, 13, 0);
-		 if(msg[0] != 0)
-			{
-			 	printf("%s\n",msg);
-    			break;
-			}
+	    	}
 	 }
     tcsetattr( STDIN_FILENO, TCSANOW, &oldt);
     return 0;
