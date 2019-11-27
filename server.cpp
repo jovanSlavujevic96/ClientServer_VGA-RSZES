@@ -14,7 +14,6 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 
-#include <map>
 #include <iostream>
 
 #define MAX_PKT_SIZE (640*480*4)
@@ -43,7 +42,6 @@ void refreshCubes(void);
 void updateScreen(void);
 void eraseCube(const int id);
 void moveCube(const int id, const char command);
-int getId(int *socket, int id);
 
 int main( int argc, char **argv )
 {
@@ -56,10 +54,8 @@ int main( int argc, char **argv )
 	int opt = true;
 	int master_socket, new_socket, client_socket[max_clients] = {0}, addrlen, valread, activity;
 	int sd, max_sd;
-	char buffer; 
+	char buffer=0; 
 
-	std::map<int *, int> id_map;
-	
 	struct sockaddr_in address;	
 	fd_set readfds;
 
@@ -103,7 +99,6 @@ int main( int argc, char **argv )
 		FD_SET(master_socket, &readfds);
 		max_sd = master_socket;
 		
-		
 		for(int i = 0; i<max_clients; ++i)
 		{
 			sd = client_socket[i];
@@ -138,37 +133,28 @@ int main( int argc, char **argv )
 					++incrementer;
 					client_socket[i] = new_socket;
 					printf("Adding to list of sockets as %d\n\n", i);
-					write(new_socket, &i, sizeof(i));
 					createCube(i);
 					refreshCubes();
 					updateScreen();
 					break;
 				}
 			}
-		
-			//if( (childpid = fork() ) == 0)
-			{
-				int flag;
-				for(int a=0;a<max_clients;++a)
-					if(client_socket[a] == new_socket)
-					{
-						flag = a;
-						break;	
-					}
-				close(master_socket);
-				while(true)
+		}
+		for(int i=0; i<max_clients; ++i)
+		{
+			sd = client_socket[i];
+			if(FD_ISSET( sd, &readfds) && !fork()  )
+				while(1)
 				{
-					recv(client_socket[flag], &buffer, 1, 0);
-					if(!buffer)
+					int n = recv(sd, &buffer, 1,0);
+					if(n < 0)
 						break;
-					printf("%d\n", flag);
-					moveCube(flag,buffer);
+					moveCube(i,buffer);
 					refreshCubes();
 					updateScreen();
 					buffer = 0;
 				}
-			}
-							
+			
 		}
 		 
 		for(int i=0; i<max_clients; ++i)
@@ -186,12 +172,9 @@ int main( int argc, char **argv )
 					client_socket[i] = 0;
 				
 					eraseCube(i);
-					printf("%d\n",i);
 					refreshCubes();
 					updateScreen();
 				}
-				else
-					buffer = '\0';
 			}
 		}
     }
@@ -262,9 +245,6 @@ void moveCube(const int id, const char command)
 	if(incr == 8)
 		return;
 
-
-	std::cout << "x: " << xyPosition_Flag[id][0] << " | y: " << xyPosition_Flag[id][1] << std::endl;
-
 	bool run=false;
 	if( (command == 'd' || command == 'D') && (xyPosition_Flag[id][0]+40) < 318)
 	{
@@ -289,7 +269,6 @@ void moveCube(const int id, const char command)
 	else
 		run = false;
 
-	std::cout << "x: " << xyPosition_Flag[id][0] << " | y: " << xyPosition_Flag[id][1] << std::endl;
 	
 	if(!run)
 		return;
@@ -303,7 +282,7 @@ void moveCube(const int id, const char command)
 				vectorsColor[id][y][x] = RED;							
 	}
 
-	std::cout << "run is: "  << std::boolalpha << run << std::endl;	
+	std::cout << "x: " << xyPosition_Flag[id][0] << " | y: " << xyPosition_Flag[id][1] << std::endl;
 }
 
 void updateScreen(void)
