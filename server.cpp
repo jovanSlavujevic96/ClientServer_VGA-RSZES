@@ -15,6 +15,7 @@
 #include <fcntl.h>
 
 #include <iostream>
+#include <thread>
 
 #define MAX_PKT_SIZE (640*480*4)
 
@@ -43,141 +44,64 @@ void updateScreen(void);
 void eraseCube(const int id);
 void moveCube(const int id, const char command);
 
+char buffer[max_clients]={0}, check_buff=0;
+int incrementer=0;
+
+fd_set readfds;
+struct sockaddr_in address;
+
+int init(int &master_socket);
+void updateSocket(int &master_socket, int &sd, int &addrlen, int client_socket[max_clients] );
+void useSocket(int &sd, int &client_socket, int i)
+{
+	while(1)
+	{
+		if(i <= incrementer-1)
+		{
+			sd = client_socket;
+			//std::cout << sd << ' ' << i << std::endl;
+			if(sd )
+				if(FD_ISSET( sd, &readfds) )
+					while(1)
+					{
+						int n = recv(sd, &buffer[i], 1, 0);
+						if(n < 0 || !buffer[i])
+						{
+							//client_socket = 0;
+							break;
+						}
+						std::cout << "im in: " << i << std::endl;
+
+						moveCube(i, buffer[i]);
+						refreshCubes();
+						updateScreen();
+						buffer[i] = 0;		
+					}
+		}
+	}
+}
+
 int main( int argc, char **argv )
 {
-	
-	updateScreen();
-	fillHorizLine(BLUE, 0, 640, 240);
-	fillVertLine(BLUE, 320,0,480);
-
-	pid_t childpid;
-	int opt = true;
-	int master_socket, new_socket, client_socket[max_clients] = {0}, addrlen, valread, activity;
-	int sd, max_sd;
-	char buffer=0; 
+	int master_socket, client_socket[max_clients] = {0}, addrlen, sd;
 
 	struct sockaddr_in address;	
 	fd_set readfds;
 
-	master_socket = socket(AF_INET, SOCK_STREAM, 0);
-	if(master_socket < 0)
-    {
-		perror("ERROR opening socket\n");
-		return -1;
-    }
+	addrlen = init(master_socket);
 
-	if( setsockopt(master_socket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt) )  < 0 )
-	{
-		perror("ERROR setsockopt\n");	  
-		return -1;
-	}
-  
-	bzero((char *) &address, sizeof(address)); 
-	address.sin_family = AF_INET; 
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(5001); 
-
-    if( bind(master_socket, (struct sockaddr *) &address, sizeof(address) ) < 0)
-    {
-        perror("ERROR on binding\n");
-        return -1;
-    }
-
-	if( listen(master_socket,4) < 0)
-	{
-		perror("ERROR on listen\n");
-		return -1;	 
-	}
-    
-	addrlen = sizeof(address);
 	puts("Waiting for connections..\n");
 
 	int incrementer = 0;
-	while (true)
-    {
-		FD_ZERO(&readfds);
-		FD_SET(master_socket, &readfds);
-		max_sd = master_socket;
-		
-		for(int i = 0; i<max_clients; ++i)
-		{
-			sd = client_socket[i];
-			if(sd>0)
-					FD_SET( sd, &readfds);
-			if(sd > max_sd)
-				max_sd = sd;
-		}
-		activity = select( max_sd +1, &readfds, NULL, NULL, NULL);
-		if( (activity <0) && (errno!=EINTR))
-			printf("select error\n");
-			
-		if(FD_ISSET(master_socket, &readfds) )
-		{
 
-			if((new_socket = accept(master_socket, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0)
-			{
-				perror("accept error\n");
-				exit(1);		
-			}
-			else
-			{
-				if(incrementer < max_clients)
-					printf("New connection. Socket fd is %d, ip is: %s, port: %d\n", new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port) );	
-				else
-					printf("cannot connect new client the stack is full\n\n");
-			}
-			for(int i = 0; i< max_clients; ++i)
-			{
-				if(!client_socket[i])
-				{
-					++incrementer;
-					client_socket[i] = new_socket;
-					printf("Adding to list of sockets as %d\n\n", i);
-					createCube(i);
-					refreshCubes();
-					updateScreen();
-					break;
-				}
-			}
-		}
-		for(int i=0; i<max_clients; ++i)
-		{
-			sd = client_socket[i];
-			if(FD_ISSET( sd, &readfds) && !fork()  )
-				while(1)
-				{
-					int n = recv(sd, &buffer, 1,0);
-					if(n < 0)
-						break;
-					moveCube(i,buffer);
-					refreshCubes();
-					updateScreen();
-					buffer = 0;
-				}
-			
-		}
-		 
-		for(int i=0; i<max_clients; ++i)
-		{
-			sd = client_socket[i];
-			
-			if(FD_ISSET( sd, &readfds))
-			{
-				if(! (valread = read(sd, &buffer, 0)) )
-				{
-					getpeername(sd, (struct sockaddr*)&address, (socklen_t*)&addrlen);
-					printf("Host disconnected, ip %s, port %d \n\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
-					close(sd);
-					incrementer--;
-					client_socket[i] = 0;
-				
-					eraseCube(i);
-					refreshCubes();
-					updateScreen();
-				}
-			}
-		}
-    }
+	std::thread t1(updateSocket, std::ref(master_socket), std::ref(sd), std::ref(addrlen), client_socket);
+	std::thread t2[max_clients];
+	for(int i=0; i<max_clients; ++i)
+		t2[i] = std::thread(useSocket, std::ref(sd), std::ref(client_socket[i]), i);
+	t1.join();
+	for(int i=0; i<max_clients; ++i)
+		t2[i].join();
+
 	return 0; 
 }
 
@@ -204,6 +128,9 @@ void refreshCubes(void)
 
 void createCube(const int id)
 {
+	std::cout << "here I am\n";
+	std::cout << "incrementer: " << incrementer << std::endl;
+
 	if(id > 3)
 		return;
 	int x,y;
@@ -328,4 +255,121 @@ void fillRectangle(const int color, const int X0, const int X1, const int Y0, co
 	int i;
 	for(i=Y0; i < Y1 ; ++i)
 		fillHorizLine(color, X0, X1, i);
+}
+
+
+void updateSocket(int &master_socket, int &sd, int &addrlen, int client_socket[max_clients] )
+{
+
+	while(1)
+	{
+	
+	int new_socket, max_sd, activity, valread;
+	FD_ZERO(&readfds);
+	FD_SET(master_socket, &readfds);
+	max_sd = master_socket;
+	
+	for(int i = 0; i<max_clients; ++i)
+	{
+		sd = client_socket[i];
+		if(sd>0)
+			FD_SET( sd, &readfds);
+		if(sd > max_sd)
+			max_sd = sd;
+	}
+	activity = select( max_sd +1, &readfds, NULL, NULL, NULL);
+	if( (activity <0) && (errno!=EINTR))
+		printf("select error\n");
+			
+	if(FD_ISSET(master_socket, &readfds) )
+	{
+
+		if((new_socket = accept(master_socket, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0)
+		{
+			perror("accept error\n");
+			exit(1);		
+		}
+		else
+		{
+			if(incrementer < max_clients)
+				printf("New connection. Socket fd is %d, ip is: %s, port: %d\n", new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port) );	
+			else
+				printf("cannot connect new client the stack is full\n\n");
+		}
+		for(int i = 0; i< max_clients; ++i)
+		{
+			if(!client_socket[i])
+			{
+				++incrementer;
+				client_socket[i] = new_socket;
+				printf("Adding to list of sockets as %d\n\n", i);
+				createCube(i);
+				refreshCubes();
+				updateScreen();
+				break;
+			}
+		}
+	}
+	
+	for(int i=0; i<max_clients; ++i)
+	{
+		sd = client_socket[i];
+		if(FD_ISSET( sd, &readfds))
+		{
+			if(! (valread = read(sd, &check_buff, 0)) )
+			{
+				getpeername(sd, (struct sockaddr*)&address, (socklen_t*)&addrlen);
+				printf("Host disconnected, ip %s, port %d \n\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+				close(sd);
+				incrementer--;
+				client_socket[i] = 0;
+				eraseCube(i);
+				refreshCubes();
+				updateScreen();
+			}
+		}
+	}
+
+	}
+}
+
+int init(int &master_socket)
+{
+	updateScreen();
+	fillHorizLine(BLUE, 0, 640, 240);
+	fillVertLine(BLUE, 320,0,480);
+	
+	int opt = true;
+
+	
+	master_socket = socket(AF_INET, SOCK_STREAM, 0);
+	if(master_socket < 0)
+    	{
+		perror("ERROR opening socket\n");
+		return -1;
+    	}
+
+	if( setsockopt(master_socket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt) )  < 0 )
+	{
+		perror("ERROR setsockopt\n");	  
+		return -1;
+	}
+  
+	bzero((char *) &address, sizeof(address)); 
+	address.sin_family = AF_INET; 
+    	address.sin_addr.s_addr = INADDR_ANY;
+    	address.sin_port = htons(5001); 
+
+    	if( bind(master_socket, (struct sockaddr *) &address, sizeof(address) ) < 0)
+    	{
+        	perror("ERROR on binding\n");
+        	return -1;
+    	}
+
+	if( listen(master_socket,4) < 0)
+	{
+		perror("ERROR on listen\n");
+		return -1;	 
+	}
+	return sizeof(address);
 }
