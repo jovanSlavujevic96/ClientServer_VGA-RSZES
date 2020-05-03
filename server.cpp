@@ -25,7 +25,6 @@
 
 #include <sys/mman.h>
 #include <fcntl.h>
-//#include <errno.h>
 
 typedef struct Point
 {
@@ -103,7 +102,6 @@ void EraseCube(const int ID)
 	for(x = 0; x < 319; x++)
 		for(y = 0; y < 239; ++y)
 			PixelMatrixFragment[ID-1][y][x] = BLACK;
-    RefreshCubes();
 }
 
 void MoveCube(const int ID, char command)
@@ -346,6 +344,7 @@ void Server::CommunicationWithClient(const int ID)
             std::cout << "Client with ID:" << ID << " disconnected!\n";
             Server::FreeID(ID);
             EraseCube(ID);
+            RefreshCubes();
             cv_ID[ID].notify_one();
         }
         else
