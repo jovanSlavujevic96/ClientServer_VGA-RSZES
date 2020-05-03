@@ -1,216 +1,40 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <dirent.h>
-#include <arpa/inet.h>
-
-#include <errno.h>
-#include <unistd.h>
-#include <sys/mman.h>
-#include <fcntl.h>
+#include <unistd.h> 
+#include <stdio.h> 
+#include <sys/socket.h> 
+#include <stdlib.h> 
+#include <netinet/in.h> 
+#include <string.h> 
+#define PORT 8080
 
 #include <iostream>
+#include <string>
+#include <sstream>
+#include <map>
 #include <thread>
+#include <mutex>
+#include <condition_variable> 
+#include <memory>
 
 #define MAX_PKT_SIZE (640*480*4)
-
+//colors
 #define BLUE 0x001f
 #define BLACK 0x0000
 #define YELLOW 0xffe0
 #define RED 0xf800
 #define GREEN 0x07e0
 
-#define max_clients 4
+#include <sys/mman.h>
+#include <fcntl.h>
+//#include <errno.h>
 
-unsigned int vectorColor[480][640] = {{0}};
-unsigned int vectorsColor[4][239][319] = {{{0}}};
-
-unsigned int xyPosition_Flag[4][2];
-
-const char letter[8] = {'a','A','w','W','s','S','d','D'};
-const char* commands[4] = {"left","forward","back","rigth"};
-
-void fillHorizLine(const int color, const int Xmin, const int Xmax, const int Y);
-void fillVertLine(const int color, const int X, const int Ymin, const int Ymax);
-void fillRectangle(const int color, const int X0, const int X1, const int Y0, const int Y1);
-void createCube(const int id);
-void refreshCubes(void);
-void updateScreen(void);
-void eraseCube(const int id);
-void moveCube(const int id, const char command);
-
-char buffer[max_clients]={0}, check_buff=0;
-int incrementer=0;
-
-fd_set readfds;
-struct sockaddr_in address;
-
-int init(int &master_socket);
-void updateSocket(int &master_socket, int &sd, int &addrlen, int client_socket[max_clients] );
-void useSocket(int &sd, int &client_socket, int i)
+typedef struct Point
 {
-	while(1)
-	{
-		if(i <= incrementer-1)
-		{
-			sd = client_socket;
-			//std::cout << sd << ' ' << i << std::endl;
-			if(sd )
-				if(FD_ISSET( sd, &readfds) )
-					while(1)
-					{
-						int n = recv(sd, &buffer[i], 1, 0);
-						if(n < 0 || !buffer[i])
-						{
-							//client_socket = 0;
-							break;
-						}
-						std::cout << "im in: " << i << std::endl;
+    unsigned int x,y;
+}Point_s;
 
-						moveCube(i, buffer[i]);
-						refreshCubes();
-						updateScreen();
-						buffer[i] = 0;		
-					}
-		}
-	}
-}
-
-int main( int argc, char **argv )
-{
-	int master_socket, client_socket[max_clients] = {0}, addrlen, sd;
-
-	struct sockaddr_in address;	
-	fd_set readfds;
-
-	addrlen = init(master_socket);
-
-	puts("Waiting for connections..\n");
-
-	int incrementer = 0;
-
-	std::thread t1(updateSocket, std::ref(master_socket), std::ref(sd), std::ref(addrlen), client_socket);
-	std::thread t2[max_clients];
-	for(int i=0; i<max_clients; ++i)
-		t2[i] = std::thread(useSocket, std::ref(sd), std::ref(client_socket[i]), i);
-	t1.join();
-	for(int i=0; i<max_clients; ++i)
-		t2[i].join();
-
-	return 0; 
-}
-
-void refreshCubes(void)
-{
-	int x,y;	
-	for(x = 0; x < 319; ++x)
-	{
-		for(y = 0; y < 239; ++y)
-			vectorColor[y][x] = vectorsColor[0][y][x];
-		for(y = 241; y < 480; ++y)
-			vectorColor[y][x] = vectorsColor[2][y-241][x];
-	}
-	
-	for(x = 321; x < 640; ++x)
-	{
-		for(y = 0; y < 239; ++y)
-			vectorColor[y][x] = vectorsColor[1][y][x-321];
-		for(y = 241; y < 480; ++y)
-			vectorColor[y][x] = vectorsColor[3][y-241][x-321];
-	}
-	
-}
-
-void createCube(const int id)
-{
-	std::cout << "here I am\n";
-	std::cout << "incrementer: " << incrementer << std::endl;
-
-	if(id > 3)
-		return;
-	int x,y;
-	bool key;
-	for(x = 140; x < 180; x++)
-		for(y = 100; y < 140; y++)
-		{	
-			if(!key)
-			{
-				xyPosition_Flag[id][0] = x;
-				xyPosition_Flag[id][1] = y;
-				key = true;
-			}
-			vectorsColor[id][y][x] = RED;
-		}
-}
-
-void eraseCube(const int id)
-{
-	if(id > 3)
-		return;
-	int x,y;
-	for(x = 0; x < 319; x++)
-		for(y = 0; y < 239; ++y)
-			vectorsColor[id][y][x] = BLACK;
-}
-
-void moveCube(const int id, const char command)
-{
-	if(id > 3)
-		return;
-	int i,incr=0;
-	for(i=0;i<8;++i)
-	{
-		if(command == letter[i])
-			break;
-		++incr;	
-	}
-	if(incr == 8)
-		return;
-
-	bool run=false;
-	if( (command == 'd' || command == 'D') && (xyPosition_Flag[id][0]+40) < 318)
-	{
-		run = true;
-		xyPosition_Flag[id][0] += 1;
-	}
-	else if( (command == 'w' || command == 'W') && (xyPosition_Flag[id][1] > 0) )
-	{
-		run = true;
-		xyPosition_Flag[id][1] -= 1;
-	}
-	else if( (command == 'a' || command == 'A') && (xyPosition_Flag[id][0] > 0) )
-	{
-		run = true;
-		xyPosition_Flag[id][0] -= 1;
-	}
-	else if( (command == 's' || command == 'S') && (xyPosition_Flag[id][1]+40) < 238)
-	{
-		run = true;
-		xyPosition_Flag[id][1] += 1;
-	}
-	else
-		run = false;
-
-	
-	if(!run)
-		return;
-	else
-	{	
-		int X = xyPosition_Flag[id][0], Y = xyPosition_Flag[id][1];
-		eraseCube(id);
-		printf("you pressed the %c : which is %s\n",command, commands[(int)incr/2]);
-		for(int x=X; x<X+40; x++)
-			for(int y=Y; y<Y+40; y++)
-				vectorsColor[id][y][x] = RED;							
-	}
-
-	std::cout << "x: " << xyPosition_Flag[id][0] << " | y: " << xyPosition_Flag[id][1] << std::endl;
-}
+static volatile unsigned long int PixelMatrix[480][640] = {{0}};
+static volatile unsigned long int PixelMatrixFragment[4][480][640] = {{0}};
+static volatile Point_s PointFlag[4];
 
 void updateScreen(void)
 {
@@ -223,153 +47,345 @@ void updateScreen(void)
 		return;
 	}
 	p = (int*)mmap(0,640*480*4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	memcpy(p, vectorColor, MAX_PKT_SIZE);
+	memcpy(p, (unsigned long int*)PixelMatrix, MAX_PKT_SIZE);
 	munmap(p, MAX_PKT_SIZE);
 	close(fd);
 	if(fd < 0)
 		printf("Cannot close /dev/vga for write\n");
 }
 
-void fillVector(const int color, const int Xmin, const int Xmax, const int Ymin, const int Ymax)
+void RefreshCubes(void)
 {
-	int x,y;
-	for(x=Xmin; x<Xmax; ++x)
-		for(y=Ymin; y<Ymax; ++y)
-			vectorColor[y][x] = color;
+	for(unsigned x = 0; x < 319; ++x)
+	{
+		for(unsigned y = 0; y < 239; ++y)
+			PixelMatrix[y][x] = PixelMatrixFragment[0][y][x];
+		for(unsigned y = 241; y < 480; ++y)
+			PixelMatrix[y][x] = PixelMatrixFragment[2][y-241][x];
+	}
+	for(unsigned x = 321; x < 640; ++x)
+	{
+		for(unsigned y = 0; y < 239; ++y)
+			PixelMatrix[y][x] = PixelMatrixFragment[1][y][x-321];
+		for(unsigned y = 241; y < 480; ++y)
+			PixelMatrix[y][x] = PixelMatrixFragment[3][y-241][x-321];
+	}
+    updateScreen();
 }
 
-void fillHorizLine(const int color, const int Xmin, const int Xmax, const int Y)
+void CreateCube(const int ID)
 {
-	fillVector(color, Xmin, Xmax, Y, Y+1);
-	updateScreen();	
+    if(ID < 1 || ID > 4)
+        return;
+
+    unsigned int x,y;
+    bool key = false;
+    for(x=140; x<180; x++)
+        for(y=100; y<140; ++y)
+        {
+            if(!key)
+            {
+                PointFlag[ID-1].x = x;
+                PointFlag[ID-1].y = y;
+                key = true;
+            }
+            PixelMatrixFragment[ID-1][y][x] = RED;
+        }
+    RefreshCubes();
 }
 
-void fillVertLine(const int color, const int X, const int Ymin, const int Ymax)
+void EraseCube(const int ID)
 {
-	fillVector(color, X, X+1, Ymin, Ymax);
-	updateScreen();
+    if(ID < 1 || ID > 4)
+        return;
+
+    unsigned int x,y;
+	for(x = 0; x < 319; x++)
+		for(y = 0; y < 239; ++y)
+			PixelMatrixFragment[ID-1][y][x] = BLACK;
+    RefreshCubes();
 }
 
-void fillRectangle(const int color, const int X0, const int X1, const int Y0, const int Y1)
+void MoveCube(const int ID, char command)
 {
-	int i;
-	for(i=Y0; i < Y1 ; ++i)
-		fillHorizLine(color, X0, X1, i);
+    if(ID < 1 || ID > 4)
+        return;
+
+    if(command > 96) //small letters turn into big (a -> A) //ASCII vals
+        command -= 32;
+    
+    int X = PointFlag[ID-1].x, Y = PointFlag[ID-1].y;
+	if(command == 'D' && X+40 < 318)
+	{
+        EraseCube(ID);
+		PointFlag[ID-1].x += 1;
+	}
+	else if(command == 'W' && Y+40 > 0) 
+	{
+        EraseCube(ID);
+		PointFlag[ID-1].y -= 1;
+	}
+	else if(command == 'A' && X > 0) 
+	{
+        EraseCube(ID);
+		PointFlag[ID-1].x -= 1;
+	}
+	else if(command == 'S' && Y+40 < 238)
+	{
+        EraseCube(ID);
+		PointFlag[ID-1].y += 1;
+	}
+	else
+		return;
+
+    for(unsigned int x=X; x<X+40; x++)
+        for(unsigned int y=Y; y<Y+40; y++)
+            PixelMatrixFragment[ID-1][y][x] = RED;
+    RefreshCubes();
 }
 
-
-void updateSocket(int &master_socket, int &sd, int &addrlen, int client_socket[max_clients] )
+void DrawLine(const Point_s& start, const Point_s& end, const unsigned long int color)
 {
+    int dx, dy, p, incr=1;
+    unsigned int x=start.x, y=start.y, x_lim=end.x;
+    dx = (int)end.x-(int)start.x;
+    if(dx<0)
+        dx *= -1;
+    dy = (int)end.y-(int)start.y;
+    if(dy<0)
+        dy *= -1;
+    if(start.x > end.x)
+    {
+        x=end.x;
+        y=end.y;
+        x_lim=start.x;
+    }
+    if(!(y==start.y && start.y<=end.y) && !(y==end.y && end.y<=start.y))
+		incr = -1;
+    p=2*dy-dx;
 
-	while(1)
-	{
-	
-	int new_socket, max_sd, activity, valread;
-	FD_ZERO(&readfds);
-	FD_SET(master_socket, &readfds);
-	max_sd = master_socket;
-	
-	for(int i = 0; i<max_clients; ++i)
-	{
-		sd = client_socket[i];
-		if(sd>0)
-			FD_SET( sd, &readfds);
-		if(sd > max_sd)
-			max_sd = sd;
-	}
-	activity = select( max_sd +1, &readfds, NULL, NULL, NULL);
-	if( (activity <0) && (errno!=EINTR))
-		printf("select error\n");
-			
-	if(FD_ISSET(master_socket, &readfds) )
-	{
-
-		if((new_socket = accept(master_socket, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0)
-		{
-			perror("accept error\n");
-			exit(1);		
-		}
-		else
-		{
-			if(incrementer < max_clients)
-				printf("New connection. Socket fd is %d, ip is: %s, port: %d\n", new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port) );	
-			else
-				printf("cannot connect new client the stack is full\n\n");
-		}
-		for(int i = 0; i< max_clients; ++i)
-		{
-			if(!client_socket[i])
-			{
-				++incrementer;
-				client_socket[i] = new_socket;
-				printf("Adding to list of sockets as %d\n\n", i);
-				createCube(i);
-				refreshCubes();
-				updateScreen();
-				break;
-			}
-		}
-	}
-	
-	for(int i=0; i<max_clients; ++i)
-	{
-		sd = client_socket[i];
-		if(FD_ISSET( sd, &readfds))
-		{
-			if(! (valread = read(sd, &check_buff, 0)) )
-			{
-				getpeername(sd, (struct sockaddr*)&address, (socklen_t*)&addrlen);
-				printf("Host disconnected, ip %s, port %d \n\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
-				close(sd);
-				incrementer--;
-				client_socket[i] = 0;
-				eraseCube(i);
-				refreshCubes();
-				updateScreen();
-			}
-		}
-	}
-
-	}
+    while(x<=x_lim && y > 0)
+    {
+        PixelMatrix[y][x] = color;
+	std::cout << x << " x " << y << std::endl;
+	if(p>=0)
+        {
+			y += incr; 
+            p = p + 2*dy - 2*dx;
+        }
+        else
+			p=p + 2*dy;
+	if(start.x != end.x)
+		x++;
+    }
+    std::cout << "drawed!\n";
 }
 
-int init(int &master_socket)
+void DrawRectangle(const Point_s& start, const Point_s& end, const unsigned long int color)
 {
-	updateScreen();
-	fillHorizLine(BLUE, 0, 640, 240);
-	fillVertLine(BLUE, 320,0,480);
-	
-	int opt = true;
-
-	
-	master_socket = socket(AF_INET, SOCK_STREAM, 0);
-	if(master_socket < 0)
-    	{
-		perror("ERROR opening socket\n");
-		return -1;
-    	}
-
-	if( setsockopt(master_socket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt) )  < 0 )
-	{
-		perror("ERROR setsockopt\n");	  
-		return -1;
-	}
-  
-	bzero((char *) &address, sizeof(address)); 
-	address.sin_family = AF_INET; 
-    	address.sin_addr.s_addr = INADDR_ANY;
-    	address.sin_port = htons(5001); 
-
-    	if( bind(master_socket, (struct sockaddr *) &address, sizeof(address) ) < 0)
-    	{
-        	perror("ERROR on binding\n");
-        	return -1;
-    	}
-
-	if( listen(master_socket,4) < 0)
-	{
-		perror("ERROR on listen\n");
-		return -1;	 
-	}
-	return sizeof(address);
+    unsigned int xmin = (start.x < end.x) ? start.x : end.x, 
+        xmax = (start.x > end.x) ? start.x : end.x;
+    
+    for(unsigned int i=xmin;i<=xmax;++i)
+    {
+        Point_s p1 = {.x=i, .y=start.y}, p2 = {.x=i, .y=end.y};
+        DrawLine(p1,p2,color);
+    }
 }
+
+static std::map<int,std::mutex> mutex_ID;
+static std::map<int,std::condition_variable> cv_ID;
+
+class Server
+{
+private:
+    struct sockaddr_in address;
+    int server_fd;
+    int addrlen;
+
+    std::map<int,bool> ID_busy = {  {1,false}, {2,false}, {3,false}, {4,false}  };
+    std::map<int,int> ID_socket = {  {1,-1}, {2,-1}, {3,-1}, {4,-1}  };
+
+    bool ServerInit(void);
+    int ReserveID(void);
+    bool ReserveSocket(const int ID, const int socket);
+    void FreeID(const int ID);
+    int FindIDfromSocket(const int socket);
+
+public:
+
+    explicit Server();
+    virtual ~Server() = default;
+
+    void ConnectNewClient(void);
+    void CommunicationWithClient(const int ID);
+};
+
+bool Server::ServerInit(void)
+{
+    int opt = 1; 
+
+    // Creating socket file descriptor 
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) 
+    { 
+        perror("socket failed"); 
+        return false; 
+    }
+
+    // Forcefully attaching socket to the port 8080 
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, 
+                                                  &opt, sizeof(opt))) 
+    { 
+        perror("setsockopt"); 
+        return false; 
+    }
+    address.sin_family = AF_INET; 
+    address.sin_addr.s_addr = INADDR_ANY; 
+    address.sin_port = htons( PORT );
+
+    // Forcefully attaching socket to the port 8080 
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address))<0) 
+    { 
+        perror("bind failed"); 
+        return false; 
+    } 
+    if (listen(server_fd, 3) < 0) 
+    { 
+        perror("listen"); 
+        return false;
+    }
+    return true;     
+}
+
+int Server::ReserveID(void)
+{
+    for(int id=1; id<=4; ++id)
+    {
+        if(ID_busy[id] == false)
+        {
+            ID_busy[id] = true;
+            return id;
+        }
+    }
+    return -1;
+}
+
+bool Server::ReserveSocket(const int ID, const int socket)
+{
+    if(ID < 1 || ID > 4)
+        return false;
+    ID_socket[ID] = socket;
+    return true;
+}
+
+void Server::FreeID(const int ID)
+{
+    if(ID >= 1 && ID <= 4)
+    {
+        ID_busy[ID] = false;
+        ID_socket[ID] = -1;
+    }
+}
+
+int Server::FindIDfromSocket(const int socket)
+{
+    for(int id=1; id<=4; ++id)
+    {
+        if(ID_socket[id] == socket) 
+            return id;        
+    }
+    return -1;
+}
+
+Server::Server()
+{
+    addrlen = sizeof(address);
+    auto ret = Server::ServerInit();
+    if(!ret)
+        std::exit(-1);
+}
+
+void Server::ConnectNewClient(void)
+{
+    while(true)
+    {
+        int new_socket;
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0 ) 
+        { 
+            return;
+        }
+        int ID = ReserveID();
+        std::stringstream stream;
+        stream << "Hello from server, your ID:" << ID << " Good Luck! ;)";
+        int ret = send(new_socket, stream.str().c_str(), stream.str().length(), 0); 
+        if(!ret) // or ret < 0
+            FreeID(ID);
+        else
+        {
+            std::lock_guard<std::mutex> lk(mutex_ID[ID] );
+            ReserveSocket(ID, new_socket);
+            CreateCube(ID);
+            cv_ID[ID].notify_one();
+        }
+    }
+}
+
+void Server::CommunicationWithClient(const int ID)
+{
+    char buffer = 0;
+    while(true)
+    {
+        std::unique_lock<std::mutex> lk1(mutex_ID[ID]);
+        cv_ID[ID].wait(lk1, [this,ID]{return (ID_socket[ID] != -1);});
+
+        int ret = read( ID_socket[ID] , &buffer, 1);
+        if(!buffer || !ret)
+        {
+            lk1.unlock();
+            std::lock_guard<std::mutex> lk2(mutex_ID[ID] );
+            std::cout << "Client with ID:" << ID << " disconnected!\n";
+            Server::FreeID(ID);
+            EraseCube(ID);
+            cv_ID[ID].notify_one();
+        }
+        else
+        { 
+            printf("ID:%d , msg:%c\n",ID,buffer );
+            MoveCube(ID, buffer);
+            lk1.unlock();
+            cv_ID[ID].notify_all();
+        }
+        buffer = 0;
+    }
+}
+
+int main(int argc, char const *argv[]) 
+{
+    {
+        Point_s left = {.x=0, .y=240}, right = {.x=639, .y=240};
+        DrawLine(left,right,BLUE);
+        Point_s bottom = {.x=320, .y=0}, top = {.x=320, .y=479};
+        DrawLine(top,bottom,BLUE);
+    	updateScreen();
+    }
+
+    char buffer = 0;
+
+    std::unique_ptr<Server> server = std::unique_ptr<Server>(new Server); 
+
+    std::thread client_thread[4];
+    for(int i=0;i<4;i++)
+    {
+        client_thread[i] = std::thread(&Server::CommunicationWithClient, server.get(), i+1);
+    }
+
+    server->ConnectNewClient();
+
+    for(int i=0;i<4;++i)
+    {
+        client_thread[i].join();
+    }
+    server.release();
+
+    return 0; 
+} 
