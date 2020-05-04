@@ -108,7 +108,7 @@ int main(int argc, char const *argv[])
 
     int sock = 0; 
   
-    if(!ProtocolInit(sock))
+    if(!ProtocolInit(sock,argv[1]))
         return -1; 
 
     while(true)
