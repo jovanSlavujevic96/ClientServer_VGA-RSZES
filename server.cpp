@@ -10,6 +10,7 @@
 #include <string>
 #include <sstream>
 #include <map>
+#include <vector>
 #include <thread>
 #include <mutex>
 #include <condition_variable> 
@@ -69,7 +70,7 @@ void RefreshCubes(void)
 		for(unsigned y = 241; y < 480; ++y)
 			PixelMatrix[y][x] = PixelMatrixFragment[3][y-241][x-321];
 	}
-    updateScreen();
+    	updateScreen();
 }
 
 void CreateCube(const int ID)
@@ -112,32 +113,32 @@ void MoveCube(const int ID, char command)
     if(command > 96) //small letters turn into big (a -> A) //ASCII vals
         command -= 32;
     
-    int X = PointFlag[ID-1].x, Y = PointFlag[ID-1].y;
-	if(command == 'D' && X+40 < 318)
+    unsigned int *X = (unsigned int*)&PointFlag[ID-1].x, *Y = (unsigned int*)&PointFlag[ID-1].y;
+	if(command == 'D' && *X+40 < 319)
 	{
-        EraseCube(ID);
-		PointFlag[ID-1].x += 1;
+        	EraseCube(ID);
+		*X += 1;
 	}
-	else if(command == 'W' && Y+40 > 0) 
+	else if(command == 'W' && *Y > 1) 
 	{
-        EraseCube(ID);
-		PointFlag[ID-1].y -= 1;
+        	EraseCube(ID);
+		*Y -= 1;
 	}
-	else if(command == 'A' && X > 0) 
+	else if(command == 'A' && *X > 1) 
 	{
-        EraseCube(ID);
-		PointFlag[ID-1].x -= 1;
+        	EraseCube(ID);
+		*X -= 1;
 	}
-	else if(command == 'S' && Y+40 < 238)
+	else if(command == 'S' && *Y+40 < 239)
 	{
-        EraseCube(ID);
-		PointFlag[ID-1].y += 1;
+        	EraseCube(ID);
+		*Y += 1;
 	}
 	else
 		return;
 
-    for(unsigned int x=X; x<X+40; x++)
-        for(unsigned int y=Y; y<Y+40; y++)
+    for(unsigned int x=*X; x<*X+40; x++)
+        for(unsigned int y=*Y; y<*Y+40; y++)
             PixelMatrixFragment[ID-1][y][x] = RED;
     RefreshCubes();
 }
@@ -165,7 +166,6 @@ void DrawLine(const Point_s& start, const Point_s& end, const unsigned long int 
     while(x<=x_lim && y > 0)
     {
         PixelMatrix[y][x] = color;
-	std::cout << x << " x " << y << std::endl;
 	if(p>=0)
         {
 			y += incr; 
@@ -176,7 +176,6 @@ void DrawLine(const Point_s& start, const Point_s& end, const unsigned long int 
 	if(start.x != end.x)
 		x++;
     }
-    std::cout << "drawed!\n";
 }
 
 void DrawRectangle(const Point_s& start, const Point_s& end, const unsigned long int color)
@@ -191,9 +190,6 @@ void DrawRectangle(const Point_s& start, const Point_s& end, const unsigned long
     }
 }
 
-static std::map<int,std::mutex> mutex_ID;
-static std::map<int,std::condition_variable> cv_ID;
-
 class Server
 {
 private:
@@ -203,6 +199,8 @@ private:
 
     std::map<int,bool> ID_busy = {  {1,false}, {2,false}, {3,false}, {4,false}  };
     std::map<int,int> ID_socket = {  {1,-1}, {2,-1}, {3,-1}, {4,-1}  };
+    std::vector<std::mutex> mutex_ID;
+    std::vector<std::condition_variable> cv_ID;
 
     bool ServerInit(void);
     int ReserveID(void);
@@ -295,7 +293,9 @@ int Server::FindIDfromSocket(const int socket)
     return -1;
 }
 
-Server::Server()
+Server::Server() :
+	mutex_ID {std::vector<std::mutex>(4)},
+	cv_ID {std::vector<std::condition_variable>(4) }
 {
     addrlen = sizeof(address);
     auto ret = Server::ServerInit();
@@ -320,10 +320,10 @@ void Server::ConnectNewClient(void)
             FreeID(ID);
         else
         {
-            std::lock_guard<std::mutex> lk(mutex_ID[ID] );
+            std::lock_guard<std::mutex> lk(mutex_ID[ID-1] );
             ReserveSocket(ID, new_socket);
             CreateCube(ID);
-            cv_ID[ID].notify_one();
+            cv_ID[ID-1].notify_one();
         }
     }
 }
@@ -333,26 +333,26 @@ void Server::CommunicationWithClient(const int ID)
     char buffer = 0;
     while(true)
     {
-        std::unique_lock<std::mutex> lk1(mutex_ID[ID]);
-        cv_ID[ID].wait(lk1, [this,ID]{return (ID_socket[ID] != -1);});
+        std::unique_lock<std::mutex> lk1(mutex_ID[ID-1]);
+        cv_ID[ID-1].wait(lk1, [this,ID]{return (ID_socket[ID] != -1);});
 
         int ret = read( ID_socket[ID] , &buffer, 1);
         if(!buffer || !ret)
         {
             lk1.unlock();
-            std::lock_guard<std::mutex> lk2(mutex_ID[ID] );
+            std::lock_guard<std::mutex> lk2(mutex_ID[ID-1] );
             std::cout << "Client with ID:" << ID << " disconnected!\n";
             Server::FreeID(ID);
             EraseCube(ID);
             RefreshCubes();
-            cv_ID[ID].notify_one();
+            cv_ID[ID-1].notify_one();
         }
         else
         { 
             printf("ID:%d , msg:%c\n",ID,buffer );
             MoveCube(ID, buffer);
             lk1.unlock();
-            cv_ID[ID].notify_all();
+            cv_ID[ID-1].notify_all();
         }
         buffer = 0;
     }
